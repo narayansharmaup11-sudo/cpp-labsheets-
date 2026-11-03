@@ -1,1 +1,178 @@
 
+// Smart Digital Expense Tracker with Budget Prediction - Lab Sheet 09
+
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <vector>
+#include <string>
+#include <iomanip>
+#include <algorithm>
+#include <ctime>
+#include <limits>
+using namespace std;
+
+struct Expense {
+    int id;
+    string user, date, category, description;
+    double amount;
+};
+const string USERS="users.txt", EXPENSES="expenses.txt", BUDGETS="budgets.txt";
+
+vector<string> split(const string& s) {
+    vector<string> v; string x; stringstream ss(s);
+    while (getline(ss,x,'|')) v.push_back(x);
+    return v;
+}
+bool monthOK(const string& m) {
+    if(m.size()!=7 || m[4]!='-') return false;
+    for(int i=0;i<7;i++) if(i!=4 && !isdigit((unsigned char)m[i])) return false;
+    int n=stoi(m.substr(5,2)); return n>=1 && n<=12;
+}
+bool dateOK(const string& d) {
+    if(d.size()!=10 || d[4]!='-' || d[7]!='-') return false;
+    for(int i=0;i<10;i++) if(i!=4 && i!=7 && !isdigit((unsigned char)d[i])) return false;
+    int m=stoi(d.substr(5,2)), day=stoi(d.substr(8,2));
+    return m>=1 && m<=12 && day>=1 && day<=31;
+}
+string safe(string s) {
+    for(char& c:s) if(c=='|' || c=='\n' || c=='\r') c=' ';
+    return s;
+}
+vector<Expense> loadExpenses() {
+    vector<Expense> a; ifstream f(EXPENSES); string line;
+    while(getline(f,line)) {
+        auto v=split(line);
+        if(v.size()==6) try { a.push_back({stoi(v[0]),v[1],v[2],v[3],v[4],stod(v[5])}); } catch(...) {}
+    }
+    return a;
+}
+void saveExpenses(const vector<Expense>& a) {
+    ofstream f(EXPENSES);
+    for(auto e:a) f<<e.id<<'|'<<e.user<<'|'<<e.date<<'|'<<safe(e.category)<<'|'<<safe(e.description)<<'|'<<fixed<<setprecision(2)<<e.amount<<'\n';
+}
+bool registered(const string& u) {
+    ifstream f(USERS); string line;
+    while(getline(f,line)){auto v=split(line); if(v.size()==2&&v[0]==u)return true;}
+    return false;
+}
+bool registerUser() {
+    string u,p; cout<<"Username (no spaces): "; cin>>u;
+    if(u.find('|')!=string::npos || registered(u)){cout<<"Username invalid or already exists.\n";return false;}
+    cout<<"Password: ";cin>>p;
+    if(p.find('|')!=string::npos){cout<<"Invalid password.\n";return false;}
+    ofstream f(USERS,ios::app);f<<u<<'|'<<p<<'\n';cout<<"Registration successful.\n";return true;
+}
+bool login(string& user) {
+    string u,p,line;cout<<"Username: ";cin>>u;cout<<"Password: ";cin>>p;
+    ifstream f(USERS);
+    while(getline(f,line)){auto v=split(line);if(v.size()==2&&v[0]==u&&v[1]==p){user=u;cout<<"Login successful. Welcome "<<u<<"!\n";return true;}}
+    cout<<"Login failed. Register first or check details.\n";return false;
+}
+double budgetFor(const string& u,const string& m) {
+    ifstream f(BUDGETS);string line;
+    while(getline(f,line)){auto v=split(line);if(v.size()==3&&v[0]==u&&v[1]==m)try{return stod(v[2]);}catch(...){}}
+    return 0;
+}
+double totalFor(const vector<Expense>& a,const string& u,const string& m) {
+    double t=0;for(auto e:a)if(e.user==u&&e.date.substr(0,7)==m)t+=e.amount;return t;
+}
+void status(const string& u,const string& m,const vector<Expense>& a) {
+    double b=budgetFor(u,m),t=totalFor(a,u,m);
+    cout<<fixed<<setprecision(2)<<"Spent: Rs. "<<t<<" | Budget: Rs. "<<b<<'\n';
+    if(b<=0)cout<<"No budget set for this month.\n";
+    else if(t>b)cout<<"WARNING: Monthly budget exceeded by Rs. "<<t-b<<'\n';
+    else if(t>=b*0.8)cout<<"Warning: 80% or more of budget used.\n";
+    else cout<<"You are within budget. Remaining: Rs. "<<b-t<<'\n';
+}
+void setBudget(const string& u) {
+    string m;double b;cout<<"Month (YYYY-MM): ";cin>>m;
+    if(!monthOK(m)){cout<<"Invalid month.\n";return;}
+    cout<<"Budget amount: ";if(!(cin>>b)||b<=0){cout<<"Enter a positive amount.\n";cin.clear();cin.ignore(numeric_limits<streamsize>::max(),'\n');return;}
+    vector<string> old;ifstream in(BUDGETS);string line;
+    while(getline(in,line)){auto v=split(line);if(v.size()!=3||v[0]!=u||v[1]!=m)old.push_back(line);}
+    in.close();ofstream out(BUDGETS);for(auto s:old)out<<s<<'\n';out<<u<<'|'<<m<<'|'<<fixed<<setprecision(2)<<b<<'\n';
+    cout<<"Budget saved.\n";
+}
+void addExpense(const string& u) {
+    Expense e{};e.user=u;cout<<"Date (YYYY-MM-DD): ";cin>>e.date;
+    if(!dateOK(e.date)){cout<<"Invalid date.\n";return;}
+    cin.ignore(numeric_limits<streamsize>::max(),'\n');
+    cout<<"Category: ";getline(cin,e.category);cout<<"Description: ";getline(cin,e.description);
+    cout<<"Amount (Rs.): ";if(!(cin>>e.amount)||e.amount<=0){cout<<"Enter a positive amount.\n";cin.clear();cin.ignore(numeric_limits<streamsize>::max(),'\n');return;}
+    auto a=loadExpenses();e.id=1;for(auto x:a)e.id=max(e.id,x.id+1);a.push_back(e);saveExpenses(a);
+    cout<<"Expense saved. ID: "<<e.id<<'\n';status(u,e.date.substr(0,7),a);
+}
+void viewHistory(const string& u) {
+    auto a=loadExpenses();bool any=false;
+    cout<<left<<setw(5)<<"ID"<<setw(13)<<"Date"<<setw(16)<<"Category"<<setw(24)<<"Description"<<"Amount\n";
+    for(auto e:a)if(e.user==u){cout<<left<<setw(5)<<e.id<<setw(13)<<e.date<<setw(16)<<e.category<<setw(24)<<e.description<<"Rs. "<<fixed<<setprecision(2)<<e.amount<<'\n';any=true;}
+    if(!any)cout<<"No expenses recorded.\n";
+}
+void categoryReport(const string& u) {
+    string m;cout<<"Month (YYYY-MM): ";cin>>m;if(!monthOK(m)){cout<<"Invalid month.\n";return;}
+    vector<pair<string,double>> sums;
+    for(auto e:loadExpenses())if(e.user==u&&e.date.substr(0,7)==m){
+        auto it=find_if(sums.begin(),sums.end(),[&](auto x){return x.first==e.category;});
+        if(it==sums.end())sums.push_back({e.category,e.amount});else it->second+=e.amount;
+    }
+    sort(sums.begin(),sums.end(),[](auto a,auto b){return a.second>b.second;});
+    if(sums.empty())cout<<"No expenses this month.\n";
+    for(auto x:sums)cout<<left<<setw(22)<<x.first<<"Rs. "<<fixed<<setprecision(2)<<x.second<<'\n';
+}
+void monthlyReport(const string& u) {
+    string m;cout<<"Month (YYYY-MM): ";cin>>m;if(!monthOK(m)){cout<<"Invalid month.\n";return;}
+    auto a=loadExpenses();int n=0;for(auto e:a)if(e.user==u&&e.date.substr(0,7)==m)n++;
+    cout<<"Monthly report for "<<m<<"\nExpense count: "<<n<<"\n";status(u,m,a);
+}
+void predict(const string& u) {
+    string m;cout<<"Month (YYYY-MM): ";cin>>m;if(!monthOK(m)){cout<<"Invalid month.\n";return;}
+    auto a=loadExpenses();double spent=totalFor(a,u,m);int days=30;
+    time_t now=time(nullptr);tm* t=localtime(&now);
+    if(t && m==to_string(t->tm_year+1900)+"-"+(t->tm_mon+1<10?"0":"")+to_string(t->tm_mon+1))days=max(1,t->tm_mday);
+    double estimate=spent/days*30,b=budgetFor(u,m);
+    cout<<fixed<<setprecision(2)<<"Recorded spending: Rs. "<<spent<<"\nEstimated month-end spending: Rs. "<<estimate<<'\n';
+    if(b>0&&estimate>b)cout<<"Prediction: budget may be exceeded by Rs. "<<estimate-b<<'\n';
+    else if(b>0)cout<<"Prediction: likely to remain within budget.\n";
+    else cout<<"Set a budget to compare the estimate.\n";
+    cout<<"This is a simple average-per-day estimate, not AI.\n";
+}
+void searchExpense(const string& u) {
+    string q;cout<<"Search keyword (date/category/description): ";cin.ignore(numeric_limits<streamsize>::max(),'\n');getline(cin,q);
+    transform(q.begin(),q.end(),q.begin(),[](unsigned char c){return (char)tolower(c);});
+    bool found=false;
+    for(auto e:loadExpenses())if(e.user==u){
+        string s=e.date+" "+e.category+" "+e.description;
+        transform(s.begin(),s.end(),s.begin(),[](unsigned char c){return (char)tolower(c);});
+        if(s.find(q)!=string::npos){cout<<"ID "<<e.id<<" | "<<e.date<<" | "<<e.category<<" | "<<e.description<<" | Rs. "<<e.amount<<'\n';found=true;}
+    }
+    if(!found)cout<<"No matching expense.\n";
+}
+void deleteExpense(const string& u) {
+    int id;cout<<"Expense ID to delete: ";if(!(cin>>id)){cin.clear();cin.ignore(numeric_limits<streamsize>::max(),'\n');cout<<"Invalid ID.\n";return;}
+    auto a=loadExpenses();size_t n=a.size();
+    a.erase(remove_if(a.begin(),a.end(),[&](auto e){return e.user==u&&e.id==id;}),a.end());
+    if(a.size()==n)cout<<"Expense ID not found.\n";else{saveExpenses(a);cout<<"Expense deleted.\n";}
+}
+int main() {
+    cout<<"=== SMART DIGITAL EXPENSE TRACKER ===\n";
+    string user;bool logged=false;
+    while(!logged){
+        int c;cout<<"\n1 Register\n2 Login\n0 Exit\nChoose: ";
+        if(!(cin>>c)){cin.clear();cin.ignore(numeric_limits<streamsize>::max(),'\n');continue;}
+        if(c==1)registerUser();else if(c==2)logged=login(user);else if(c==0)return 0;else cout<<"Invalid choice.\n";
+    }
+    bool run=true;
+    while(run){
+        cout<<"\n--- MAIN MENU ---\n1 Add Daily Expense\n2 View Expense History\n3 Category-wise Expense\n4 Monthly Expense Report\n5 Set Monthly Budget\n6 Budget Warning/Status\n7 Expense Prediction\n8 Search Expense\n9 Delete Expense\n0 Logout\nChoose: ";
+        int c;if(!(cin>>c)){cin.clear();cin.ignore(numeric_limits<streamsize>::max(),'\n');continue;}
+        switch(c){
+            case 1:addExpense(user);break;case 2:viewHistory(user);break;case 3:categoryReport(user);break;
+            case 4:monthlyReport(user);break;case 5:setBudget(user);break;
+            case 6:{string m;cout<<"Month (YYYY-MM): ";cin>>m;if(monthOK(m))status(user,m,loadExpenses());else cout<<"Invalid month.\n";break;}
+            case 7:predict(user);break;case 8:searchExpense(user);break;case 9:deleteExpense(user);break;
+            case 0:run=false;cout<<"Logged out.\n";break;default:cout<<"Invalid choice.\n";
+        }
+    }
+    return 0;
+}
