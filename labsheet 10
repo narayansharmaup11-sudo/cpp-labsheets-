@@ -1,1 +1,306 @@
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <iomanip>
+#include <limits>
+using namespace std;
+
+struct Item {
+    int id;
+    string type;       // LOST or FOUND
+    string itemName;
+    string description;
+    string location;
+    string date;
+    string studentName;
+    string contact;
+    bool matched;
+};
+
+const string DATA_FILE = "items.txt";
+const string REPORT_FILE = "export_report.txt";
+
+vector<Item> items;
+int nextId = 1;
+
+string cleanField(string value) {
+    // Keep the text-file format simple by replacing the separator.
+    replace(value.begin(), value.end(), '|', '/');
+    return value;
+}
+
+void loadItems() {
+    ifstream fin(DATA_FILE);
+    if (!fin) return;
+
+    string line;
+    while (getline(fin, line)) {
+        stringstream ss(line);
+        Item item;
+        string matchedText;
+        if (getline(ss, line, '|')) item.id = stoi(line); else continue;
+        if (!getline(ss, item.type, '|')) continue;
+        if (!getline(ss, item.itemName, '|')) continue;
+        if (!getline(ss, item.description, '|')) continue;
+        if (!getline(ss, item.location, '|')) continue;
+        if (!getline(ss, item.date, '|')) continue;
+        if (!getline(ss, item.studentName, '|')) continue;
+        if (!getline(ss, item.contact, '|')) continue;
+        if (!getline(ss, matchedText, '|')) matchedText = "0";
+        item.matched = (matchedText == "1");
+        items.push_back(item);
+        nextId = max(nextId, item.id + 1);
+    }
+    fin.close();
+}
+
+void saveItems() {
+    ofstream fout(DATA_FILE);
+    for (const Item& item : items) {
+        fout << item.id << '|'
+             << item.type << '|'
+             << cleanField(item.itemName) << '|'
+             << cleanField(item.description) << '|'
+             << cleanField(item.location) << '|'
+             << cleanField(item.date) << '|'
+             << cleanField(item.studentName) << '|'
+             << cleanField(item.contact) << '|'
+             << (item.matched ? 1 : 0) << '\n';
+    }
+    fout.close();
+}
+
+string readLine(const string& prompt) {
+    string value;
+    cout << prompt;
+    getline(cin, value);
+    return value;
+}
+
+void studentLogin(string& loggedInStudent) {
+    cout << "\n--- Student Login ---\n";
+    loggedInStudent = readLine("Enter student name: ");
+    if (loggedInStudent.empty()) {
+        cout << "Name cannot be empty. Please try again.\n";
+        loggedInStudent.clear();
+    } else {
+        cout << "Welcome, " << loggedInStudent << "!\n";
+    }
+}
+
+void addItem(const string& type, const string& student) {
+    if (student.empty()) {
+        cout << "Please login first.\n";
+        return;
+    }
+
+    Item item;
+    item.id = nextId++;
+    item.type = type;
+    item.itemName = readLine("Enter item name: ");
+    item.description = readLine("Enter item description/identifying details: ");
+    item.location = readLine("Enter location: ");
+    item.date = readLine("Enter date (DD-MM-YYYY): ");
+    item.studentName = student;
+    item.contact = readLine("Enter contact number/email: ");
+    item.matched = false;
+
+    if (item.itemName.empty()) {
+        cout << "Item name is required. Record not saved.\n";
+        --nextId;
+        return;
+    }
+
+    items.push_back(item);
+    saveItems();
+    cout << type << " item recorded successfully. Record ID: " << item.id << "\n";
+}
+
+void printItem(const Item& item) {
+    cout << "\nID: " << item.id
+         << "\nType: " << item.type
+         << "\nItem: " << item.itemName
+         << "\nDescription: " << item.description
+         << "\nLocation: " << item.location
+         << "\nDate: " << item.date
+         << "\nReported by: " << item.studentName
+         << "\nContact: " << item.contact
+         << "\nMatch status: " << (item.matched ? "Matched" : "Not matched")
+         << "\n-----------------------------\n";
+}
+
+void searchItems() {
+    string key = readLine("Enter item name or keyword to search: ");
+    bool found = false;
+    for (const Item& item : items) {
+        string name = item.itemName;
+        string description = item.description;
+        string searchKey = key;
+        transform(name.begin(), name.end(), name.begin(), ::tolower);
+        transform(description.begin(), description.end(), description.begin(), ::tolower);
+        transform(searchKey.begin(), searchKey.end(), searchKey.begin(), ::tolower);
+        if (name.find(searchKey) != string::npos ||
+            description.find(searchKey) != string::npos) {
+            printItem(item);
+            found = true;
+        }
+    }
+    if (!found) cout << "No matching record found.\n";
+}
+
+void autoMatch() {
+    int matches = 0;
+    for (Item& lost : items) {
+        if (lost.type != "LOST" || lost.matched) continue;
+        for (Item& found : items) {
+            if (found.type != "FOUND" || found.matched) continue;
+
+            string lostName = lost.itemName;
+            string foundName = found.itemName;
+            transform(lostName.begin(), lostName.end(), lostName.begin(), ::tolower);
+            transform(foundName.begin(), foundName.end(), foundName.begin(), ::tolower);
+
+            // A simple automatic match: item names must be equal (case-insensitive).
+            if (lostName == foundName) {
+                lost.matched = true;
+                found.matched = true;
+                cout << "\nPossible match found:\n";
+                cout << "Lost record ID: " << lost.id
+                     << " | Reported by: " << lost.studentName << "\n";
+                cout << "Found record ID: " << found.id
+                     << " | Reported by: " << found.studentName << "\n";
+                cout << "Please verify the description and contact the reporter.\n";
+                ++matches;
+                break;
+            }
+        }
+    }
+    saveItems();
+    if (matches == 0) cout << "No new matches found.\n";
+    else cout << matches << " possible match(es) found.\n";
+}
+
+void viewAllRecords() {
+    if (items.empty()) {
+        cout << "No records available.\n";
+        return;
+    }
+    for (const Item& item : items) printItem(item);
+}
+
+void deleteRecord() {
+    if (items.empty()) {
+        cout << "No records available to delete.\n";
+        return;
+    }
+    int id;
+    cout << "Enter record ID to delete: ";
+    if (!(cin >> id)) {
+        cin.clear();
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        cout << "Invalid ID.\n";
+        return;
+    }
+    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+
+    auto it = find_if(items.begin(), items.end(),
+                      [id](const Item& item) { return item.id == id; });
+    if (it == items.end()) {
+        cout << "Record ID not found.\n";
+    } else {
+        items.erase(it);
+        saveItems();
+        cout << "Record deleted successfully.\n";
+    }
+}
+
+void itemStatistics() {
+    int lost = 0, found = 0, matched = 0;
+    for (const Item& item : items) {
+        if (item.type == "LOST") ++lost;
+        if (item.type == "FOUND") ++found;
+        if (item.matched) ++matched;
+    }
+    cout << "\n--- Item Statistics ---\n"
+         << "Total records: " << items.size() << "\n"
+         << "Lost items: " << lost << "\n"
+         << "Found items: " << found << "\n"
+         << "Records marked as matched: " << matched << "\n";
+}
+
+void exportReport() {
+    ofstream fout(REPORT_FILE);
+    if (!fout) {
+        cout << "Unable to create report file.\n";
+        return;
+    }
+    fout << "SMART CAMPUS LOST & FOUND MANAGEMENT SYSTEM\n";
+    fout << "===========================================\n";
+    fout << "Total records: " << items.size() << "\n\n";
+    for (const Item& item : items) {
+        fout << "ID: " << item.id << "\n"
+             << "Type: " << item.type << "\n"
+             << "Item: " << item.itemName << "\n"
+             << "Description: " << item.description << "\n"
+             << "Location: " << item.location << "\n"
+             << "Date: " << item.date << "\n"
+             << "Reported by: " << item.studentName << "\n"
+             << "Contact: " << item.contact << "\n"
+             << "Match status: " << (item.matched ? "Matched" : "Not matched")
+             << "\n-------------------------------------------\n";
+    }
+    fout.close();
+    cout << "Report exported to " << REPORT_FILE << ".\n";
+}
+
+int main() {
+    loadItems();
+    string loggedInStudent;
+    int choice;
+
+    cout << "============================================\n";
+    cout << " SMART CAMPUS LOST & FOUND MANAGEMENT SYSTEM\n";
+    cout << "============================================\n";
+
+    do {
+        cout << "\n1. Student Login\n"
+             << "2. Report Lost Item\n"
+             << "3. Report Found Item\n"
+             << "4. Search Item\n"
+             << "5. Auto Match Lost & Found\n"
+             << "6. View All Records\n"
+             << "7. Delete Record\n"
+             << "8. Item Statistics\n"
+             << "9. Export Report\n"
+             << "10. Exit\n"
+             << "Enter your choice: ";
+
+        if (!(cin >> choice)) {
+            cin.clear();
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            cout << "Please enter a valid menu number.\n";
+            continue;
+        }
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+
+        switch (choice) {
+            case 1: studentLogin(loggedInStudent); break;
+            case 2: addItem("LOST", loggedInStudent); break;
+            case 3: addItem("FOUND", loggedInStudent); break;
+            case 4: searchItems(); break;
+            case 5: autoMatch(); break;
+            case 6: viewAllRecords(); break;
+            case 7: deleteRecord(); break;
+            case 8: itemStatistics(); break;
+            case 9: exportReport(); break;
+            case 10: saveItems(); cout << "Thank you for using the system.\n"; break;
+            default: cout << "Invalid choice. Select 1 to 10.\n";
+        }
+    } while (choice != 10);
+
+    return 0;
+}
 
